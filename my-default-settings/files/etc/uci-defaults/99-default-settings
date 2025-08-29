@@ -9,7 +9,7 @@ sed -i "s/op.supes.top/dl.openwrt.ai/" /etc/opkg/distfeeds.conf
 version=`uci -q get base_config.@status[0].version`
 
 hostname=`uci -q get system.@system[0].hostname`
-[ -n "${hostname}" ] || hostname="Kwrt"
+[ -n "${hostname}" ] || hostname="xyWrt"
 
 if [ "$(uci -q get dhcp.@dnsmasq[0].port)" != "53" ]; then
 	uci -q set dhcp.@dnsmasq[0].port='53'
@@ -42,18 +42,20 @@ if [[ ! "$version" || "$version" -lt 1 ]]; then
 	uci -q set luci.main.mediaurlbase=/luci-static/argon
 	uci commit luci
 	
-	uci -q set dropbear.@dropbear[0].Interface='lan'
-	uci commit dropbear
+	# uci -q set dropbear.@dropbear[0].Interface='lan'
+	# uci commit dropbear
 	
 	if uci -q get system.@system[0] >/dev/null; then
-		uci -q set system.@system[0].zonename='Asia/Shanghai'
-		uci -q set system.@system[0].timezone='CST-8'
+		uci -q set system.@system[0].zonename='Europe/Istanbul'
+		uci -q set system.@system[0].timezone='UTC+3'
 		uci -q set system.@system[0].conloglevel='4'
 		uci -q set system.@system[0].cronloglevel='8'
 		uci -q set system.@system[0].ttylogin='1'
 		uci -q del system.ntp.server
-		uci -q add_list system.ntp.server='ntp.aliyun.com'
-		uci -q add_list system.ntp.server='0.openwrt.pool.ntp.org'
+		uci -q add_list system.ntp.server='0.pool.ntp.org'
+		uci -q add_list system.ntp.server='0.tr.pool.ntp.org'
+		uci -q add_list system.ntp.server='1.tr.pool.ntp.org'
+		uci -q add_list system.ntp.server='1.pool.ntp.org'
 		uci commit system
 	fi
 
@@ -90,16 +92,16 @@ if [[ ! "$version" || "$version" -lt 1 ]]; then
 	uci -q set network.@device[0].promisc=1
 	uci commit network
   
-	uci -q set dhcp.@dnsmasq[0].dns_redirect='1'
-	uci -q set dhcp.@dnsmasq[0].allservers='1'
-	uci -q del dhcp.@dnsmasq[0].noresolv
-	uci -q set dhcp.@dnsmasq[0].cachesize='1500'
+	# uci -q set dhcp.@dnsmasq[0].dns_redirect='1'
+	# uci -q set dhcp.@dnsmasq[0].allservers='1'
+	uci -q set dhcp.@dnsmasq[0].noresolv='1'
+	uci -q set dhcp.@dnsmasq[0].cachesize='0'
 	uci -q set dhcp.@dnsmasq[0].min_ttl='3600'
-	uci -q set dhcp.lan.force='1'
-	uci -q set dhcp.lan.ra='hybrid'
-	uci -q set dhcp.lan.ndp='hybrid'
-	uci -q set dhcp.lan.dhcpv6='hybrid'
-	uci -q set dhcp.lan.force='1'
+	uci -q del dhcp.lan.force
+	uci -q del dhcp.lan.ra
+	uci -q del dhcp.lan.ndp
+	uci -q del dhcp.lan.dhcpv6
+	uci -q del dhcp.lan.force
 	uci commit dhcp
 
 	uci -q set nft-qos.default.limit_enable='0'
@@ -194,7 +196,7 @@ fi
 if [ -n "$(command -v nginx)" ]; then
 if [ -z "`uci -q get nginx.default_server`" ]; then
 	uci -q set nginx.default_server=server
-	uci -q set nginx.default_server.server_name='kwrt'
+	uci -q set nginx.default_server.server_name='xywrt'
 	uci -q add_list nginx.default_server.listen='80 default_server'
 	uci -q add_list nginx.default_server.listen='[::]:80 default_server'
 	uci -q add_list nginx.default_server.include='conf.d/*.locations'
@@ -203,9 +205,9 @@ if [ -z "`uci -q get nginx.default_server`" ]; then
 fi
 if [ -z "`uci -q get dhcp.default_server`" ]; then
 	uci -q set dhcp.default_server=domain
-	uci -q set dhcp.default_server.name='kwrt'
+	uci -q set dhcp.default_server.name='xywrt'
 	uci -q set dhcp.default_server.ip='10.0.0.1'
-	uci -q set dhcp.default_server.comments='后台地址'
+	uci -q set dhcp.default_server.comments='Backend Server'
 	uci commit dhcp
 fi
 grep -q "uwsgi_read_timeout" /etc/nginx/conf.d/luci.locations 2>/dev/null || {
