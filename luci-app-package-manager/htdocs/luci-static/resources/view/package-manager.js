@@ -1175,21 +1175,21 @@ return view.extend({
                 } else if (stat) {
                     var currentDate = new Date();
                     var lastUpdateDate = new Date(stat.mtime * 1000);  // Convert seconds to milliseconds
-                    // 检查是否在今天的零点之后更新过
+                    // Check if it has been updated after midnight today
                     var today = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
                     needUpdate = lastUpdateDate < today;
                 } else {
                     needUpdate = true;
                 }
 
-                // 检查 resolv.conf.auto 文件内容
+                // Check the contents of the resolv.conf.auto file
                 var hasResolvContent = resolvContent && resolvContent.trim().length > 0;
 
-                // 只有当需要更新且 resolv.conf.auto 不为空时，才返回 true
+                // Returns true only if an update is needed and resolv.conf.auto is not empty
                 return needUpdate && hasResolvContent;
             }).catch(function(error) {
                 console.error('Error checking update status:', error);
-                return false; // 如果出错，不执行更新
+                return false; // If an error occurs, do not perform the update
             });
         };
 

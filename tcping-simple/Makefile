@@ -6,12 +6,12 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=tcping-simple
 PKG_VERSION:=1.3.5
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/MushrooM93/tcping.git
 PKG_SOURCE_DATE:=2018-08-10
-PKG_SOURCE_VERSION:=b9ee61a5c1d05f228aa70027331556f0c27dd4c2
+PKG_SOURCE_VERSION:=null
 PKG_MIRROR_HASH:=skip
 
 include $(INCLUDE_DIR)/package.mk
