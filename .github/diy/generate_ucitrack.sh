@@ -1,11 +1,11 @@
 #!/bin/bash
 
 find . -path "*/root/usr/share/ucitrack/*.json" -type f | while read -r json_file; do
-    # 使用 sed 检查并替换格式，匹配不包含逗号的任意字符串
+  # Use sed to check and replace the format, matching any string that does not contain commas
     if grep -q '"init": \[.*\]' "$json_file"; then
-        # 使用 perl 正则来处理，因为它的正则表达式功能更强大
+       # Use perl regular expression to process, because its regular expression function is more powerful
         perl -i -pe 's/"init":\s*\[\s*"([^,"\n]+)"\s*\]/"init": "$1"/g' "$json_file"
-        echo "已处理 json 文件: $json_file"
+        echo "Processed json file: $json_file"
     fi
 done
 
@@ -15,15 +15,15 @@ find . -type f \
     | while read -r file; do
     
     if grep -q "add ucitrack" "$file"; then
-        # 提取xx的值
+        # Extract the value of xx
         xx=$(grep "add ucitrack" "$file" | awk '{print $3}' | head -1 | tr -d '\r' | tr -d ' ')
         
-        # 读取第一行
+        # Read the first line
         first_line=$(head -n 1 "$file")
         
-        # 构建新文件内容
+        # Build new file content
         {
-            # 检查第一行是否包含 #!/bin/
+            # Check if the first line contains #!/bin/
             if [[ "$first_line" == "#!/bin/"* ]]; then
                 echo "$first_line"
             fi
@@ -35,28 +35,28 @@ find . -type f \
             echo "}"
             echo "EEOF"
             echo "}"
-             # 如果第一行不包含 #!/bin/，在这里输出
+             # If the first line does not contain #!/bin/, output it here
             if [[ "$first_line" != "#!/bin/"* && -n "$first_line" ]]; then
                 echo "$first_line"
             fi
-            # 获取其余内容
+            # Get the rest
             sed '1d' "$file"
         } > "${file}.tmp"
         
-        # 替换原文件
+        # Replace the original file
         mv "${file}.tmp" "$file"
         
-        echo "已处理文件: $file (ucitrack)"
+        echo "Processed files: $file (ucitrack)"
         
     else
-        # 检查是否需要添加 reload_service
+        # Check if you need to add reload_service
     if (grep -q "stop_service\|service_stopped" "$file") && ! grep -q "reload_service" "$file"; then
         echo >> "$file"
         echo "reload_service() {" >> "$file"
         echo -e "\trestart" >> "$file"
         echo "}" >> "$file"
         
-        echo "已添加 reload_service 到文件: $file"
+        echo "Added reload_service to the file: $file"
     fi
 
 if awk '/^USE_PROCD/{a=1} /start_service/{b=1} /config_load/{c=1} /service_triggers/{d=1} END{exit !(a&&b&&c&&!d)}' "$file"; then
@@ -67,7 +67,7 @@ if awk '/^USE_PROCD/{a=1} /start_service/{b=1} /config_load/{c=1} /service_trigg
         echo -e "\tprocd_add_reload_trigger \"$config\"" >> "$file"
         echo "}" >> "$file"
         
-        echo "已添加 service_triggers 到文件: $file"
+        echo "Added service_triggers to the file: $file"
     fi
     fi
 done
