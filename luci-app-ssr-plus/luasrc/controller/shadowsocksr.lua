@@ -30,7 +30,7 @@ function index()
 	entry({"admin", "services", "shadowsocksr", "delete"}, call("act_delete"))
 	--[[Backup]]
 	entry({"admin", "services", "shadowsocksr", "backup"}, call("create_backup")).leaf = true
-	entry({'admin', 'services', "shadowsocksr", 'ip'}, call('check_ip')) -- 获取ip情况
+	entry({'admin', 'services', "shadowsocksr", 'ip'}, call('check_ip')) -- Get IP information
 end
 
 function check_site(host, port)
@@ -58,16 +58,16 @@ end
 
 function get_country_name(countryCode)
     local country_names = {
-        US = "美国", CN = "中国", JP = "日本", GB = "英国", DE = "德国",
-        FR = "法国", BR = "巴西", IT = "意大利", RU = "俄罗斯", CA = "加拿大",
-        KR = "韩国", ES = "西班牙", AU = "澳大利亚", MX = "墨西哥", ID = "印度尼西亚",
-        NL = "荷兰", TR = "土耳其", CH = "瑞士", SA = "沙特阿拉伯", SE = "瑞典",
-        PL = "波兰", BE = "比利时", AR = "阿根廷", NO = "挪威", AT = "奥地利",
-        TW = "台湾", ZA = "南非", TH = "泰国", DK = "丹麦", MY = "马来西亚",
-        PH = "菲律宾", SG = "新加坡", IE = "爱尔兰", HK = "香港", FI = "芬兰",
-        CL = "智利", PT = "葡萄牙", GR = "希腊", IL = "以色列", NZ = "新西兰",
-        CZ = "捷克", RO = "罗马尼亚", VN = "越南", UA = "乌克兰", HU = "匈牙利",
-        AE = "阿联酋", CO = "哥伦比亚", IN = "印度", EG = "埃及", PE = "秘鲁", TW = "台湾"
+ US = "United States", CN = "China", JP = "Japan", GB = "United Kingdom", DE = "Germany",
+ FR = "France", BR = "Brazil", IT = "Italy", RU = "Russia", CA = "Canada",
+ KR = "South Korea", ES = "Spain", AU = "Australia", MX = "Mexico", ID = "Indonesia",
+ NL = "Netherlands", TR = "Turkey", CH = "Switzerland", SA = "Saudi Arabia", SE = "Sweden",
+ PL = "Poland", BE = "Belgium", AR = "Argentina", NO = "Norway", AT = "Austria",
+ TW = "Taiwan", ZA = "South Africa", TH = "Thailand", DK = "Denmark", MY = "Malaysia",
+ PH = "Philippines", SG = "Singapore", IE = "Ireland", HK = "Hong Kong", FI = "Finland",
+ CL = "Chile", PT = "Portugal", GR = "Greece", IL = "Israel", NZ = "New Zealand",
+ CZ = "Czech Republic", RO = "Romania", VN = "Vietnam", UA = "Ukraine", HU = "Hungary",
+ AE = "United Arab Emirates", CO = "Colombia", IN = "India", EG = "Egypt", PE = "Peru", TW = "Taiwan"
     }
     return country_names[countryCode]
 end
