@@ -44,8 +44,6 @@ define Package/$(PKG_NAME)/install
 	if [ -d ./diy/$(TARGETID)/base-files/. ]; then \
 		$(CP) ./diy/$(TARGETID)/base-files/* $(1)/; \
 	fi; \
-	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/i18n
-	po2lmo ./po/zh_Hans/default.po $(1)/usr/lib/lua/luci/i18n/default.zh-cn.lmo
 
 endef
 
