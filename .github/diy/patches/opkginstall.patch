@@ -165,7 +165,7 @@
 +						 code=$?
 +						 lock -u /var/lock/opkg-upgrade
 +						else
-+							echo "🎉 所有软件包已是最新~" >>/tmp/ipkg.out
++							echo "🎉 All packages are updated!~" >>/tmp/ipkg.out
 +							code=0
 +						fi
 +					fi
@@ -190,7 +190,7 @@
 +				esac
  				stderr=$(cat /tmp/ipkg.err)
 +				[ -n "$stderr" ] || {
-+					echo "🎉 已完成, 请关闭本窗口~" >>/tmp/ipkg.out
++					echo "🎉 Completed!~" >>/tmp/ipkg.out
 +					code=0
 +				}
 +				stdout=$(cat /tmp/ipkg.out)
