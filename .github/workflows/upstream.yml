@@ -123,6 +123,7 @@ jobs:
         (
         git_clone https://github.com/xiaorouji/openwrt-passwall && mvdir openwrt-passwall
         git_clone https://github.com/xiaorouji/openwrt-passwall-packages && mvdir openwrt-passwall-packages
+        git_clone https://github.com/sbwml/luci-app-mosdns openwrt-mos && mv -n openwrt-mos/{*mosdns,v2dat} ./; rm -rf openwrt-mos
         git clone https://github.com/fw876/helloworld && mvdir helloworld
         git_clone https://github.com/Lienol/openwrt-package liep
         git_clone https://github.com/rufengsuixing/luci-app-autoipsetadder
@@ -157,8 +158,6 @@ jobs:
         git_clone https://github.com/peter-tank/luci-app-autorepeater
         git_clone https://github.com/brvphoenix/luci-app-wrtbwmon wrtbwmon1 && mvdir wrtbwmon1
         git_clone https://github.com/brvphoenix/wrtbwmon wrtbwmon2 && mvdir wrtbwmon2
-        #git_clone https://github.com/QiuSimons/openwrt-mos && mv -n openwrt-mos/{*mosdns,v2ray-geodata} ./ ; rm -rf openwrt-mos
-        git_clone https://github.com/sbwml/luci-app-mosdns openwrt-mos && mv -n openwrt-mos/{*mosdns,v2dat} ./; rm -rf openwrt-mos
         git_clone https://github.com/muink/openwrt-fastfetch
         ) &
         (
@@ -318,7 +317,7 @@ jobs:
         git_clone https://github.com/hczjxhdyz/luci-app-cns-server
         git_clone https://github.com/tano-systems/luci-app-tn-lldpd
         git_clone https://github.com/DRAWCORE/luci-app-qos-emong
-        git_clone https://github.com/wintbiit/luci-app-sakurafrp
+        # git_clone https://github.com/wintbiit/luci-app-sakurafrp
         git_clone https://github.com/ykxVK8yL5L/luci-app-taskschedule taskschedule && mvdir taskschedule
         git_clone https://github.com/douo/luci-app-tinyfecvpn
         ) &
@@ -382,7 +381,7 @@ jobs:
         net/ipset-lists net/ShadowVPN net/nps net/vlmcsd net/dnsforwarder \
         net/ps3netsrv net/brook net/q net/speedtest-cli \
         net/vsftpd net/smartdns net/miniupnpd net/p910nd \
-        net/ariang libs/wxbase libs/rapidjson libs/libcron libs/quickjspp libs/toml11 \
+        net/ariang libs/wxbase libs/rapidjson libs/libcron libs/quickjspp libs/toml11 libs/libdvbcsa \
         libs/libdouble-conversion libs/qt6base libs/jpcre2 libs/alac libs/libcryptopp libs/antileech \
         utils/qt6tools utils/dockerd utils/cpulimit utils/sendat utils/filebrowser utils/cups-bjnp utils/rhash utils/boltbrowser \
         utils/phicomm-k3screenctrl utils/joker utils/7z utils/dhrystone utils/supervisor utils/tinymembench utils/pcat-mgr utils/fan2go \
@@ -410,7 +409,7 @@ jobs:
         set +e
         mv -n applications/!(luci-app-noddos|luci-app-openvpn-server|luci-app-chrony|luci-app-kodexplorer|luci-app-cshark|luci-app-dnscrypt-proxy|luci-app-https-dns-proxy|luci-app-ssr-mudb-server|luci-app-ledtrig-*|luci-app-antiblock) ./ ; rm -Rf applications
         mv -n lean/!(r8101|r8125|r8126|r8168) ./ ; rm -Rf lean
-        mv -n liep/* ./ ; rm -Rf liep
+        mv -n liep/!(luci-app-filebrowser) ./ ; rm -Rf liep
         mv -n openwrt-app-actions/applications/* ./;rm -rf openwrt-app-actions
         rm -Rf */.git
         for pkg in $(ls -d .github/diy/packages/*); do
@@ -438,6 +437,9 @@ jobs:
         sed -i \
         -e "s/\(network\..*\)\.ifname/\1.device/g" \
         `find \( -path "*/root/*" -o -path "*/files/*" -o -path "*/luasrc/*" \) ! -path "./base-files/*" ! -path "./dnsmasq/*" ! -path "./luci-base/*" ! -path "./ppp/*" -type f` &
+        # sed -i -e "s/\(killall .*\)-[0-9] /\1-3 /g" \
+        -e "s/killall \([^-]+*\)/killall -3 \1/g" \
+        `find \( -path "*/files/root/etc/init.d/*" -o -path "*/root/etc/init.d/*" -o -path "*/files/*.init" \) -type f` &
         (
         function latest() {
           (curl -gs -H 'Content-Type: application/json' \
