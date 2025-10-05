@@ -25,6 +25,7 @@ local Module = {
 	_enabled                 = false,
 	_leds                    = {},
 	_counter                 = 0,
+	_exit                    = false,
 }
 
 function Module:setLedAttrs(t)
@@ -114,6 +115,7 @@ function Module:init(t)
 			self.syslog("err", string.format(
 				"%s: module disabled. LED '%s' is not available", self.name, l.ledName))
 		end
+		self._exit = false
 	end
 end
 
@@ -267,7 +269,7 @@ function Module:ledRunFunc(t, currentStatus)
 				)
 			end
 		end
-	else
+	elseif currentStatus == 1 then
 		if t.ledAction2 == 1 then
 			if self:getCurrentState(t) or self:getCurrentTrigger(t) then
 				self:off(t)
@@ -303,6 +305,9 @@ function Module:run(currentStatus, lastStatus, timeDiff, timeNow, inetChecked)
 	end
 	if self._counter == 0 or self._counter >= self.runInterval or currentStatus ~= lastStatus then
 		for _, t in ipairs(self._leds) do
+			if self._exit then
+				break
+			end
 			if t.enabled then
 				self:ledRunFunc(t, currentStatus)
 			end
@@ -313,6 +318,7 @@ function Module:run(currentStatus, lastStatus, timeDiff, timeNow, inetChecked)
 end
 
 function Module:onExit()
+	self._exit = true
 	for _, l in ipairs(self._leds) do
 		if l.ledPrevState then
 			if l.ledPrevState.brightness then

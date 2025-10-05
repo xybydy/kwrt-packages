@@ -1,10 +1,10 @@
 <nav class="navbar navbar-expand-lg sticky-top">
-    <div class="container-sm container">
+    <div class="container-sm container px-1 px-sm-3 px-md-4">
         <a class="navbar-brand d-flex align-items-center" href="#">
             <?= $iconHtml ?>
-            <span id="dynamicTitle" style="color: var(--accent-color); letter-spacing: 1px;"><?= htmlspecialchars($title) ?></span>
+            <span id="dynamicTitle" style="color: var(--accent-color); letter-spacing: 1px; cursor: pointer;" onclick="window.open('<?= $titleLink ?>', '_blank')"><?= htmlspecialchars($title) ?></span>
         </a>
-        <button class="navbar-toggler" type="button" style="position: relative; z-index: 1;" data-bs-toggle="collapse" data-bs-target="#navbarContent">
+        <button class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbarContent">
             <i class="bi bi-list" style="color: var(--accent-color); font-size: 1.8rem;"></i>
         </button>
         <div class="collapse navbar-collapse" id="navbarContent">
@@ -41,7 +41,7 @@
                     <button type="button" class="btn btn-danger icon-btn me-2" data-bs-toggle="modal" data-bs-target="#langModal" data-tooltip="set_language"><i class="bi bi-translate"></i></button>
                     <button type="button" class="btn btn-success icon-btn me-2" data-bs-toggle="modal" data-bs-target="#musicModal" data-tooltip="music_player"><i class="bi bi-music-note-beamed"></i></button>
                     <button type="button" class="btn btn-warning icon-btn me-2" id="toggleIpStatusBtn"  onclick="toggleIpStatusBar()" data-tooltip="hide_ip_info"><i class="bi bi-eye-slash"> </i></button>
-                    <button type="button" class="btn btn-pink icon-btn me-2" data-bs-toggle="modal" data-bs-target="#portModal" data-tooltip="viewPortInfoButton"><i class="bi bi-plug"></i></button>
+                    <button type="button" class="btn btn-pink icon-btn me-2 d-none d-sm-inline" data-bs-toggle="modal" data-bs-target="#portModal" data-tooltip="viewPortInfoButton"><i class="bi bi-plug"></i></button>
                     <button type="button" class="btn btn-success icon-btn me-2" id="updatePhpConfig" data-tooltip="unlock_php_upload_limit"><i class="bi bi-unlock"></i></button>
                     <button type="button" class="btn-refresh-page btn btn-orange icon-btn me-2 d-none d-sm-inline"><i class="fas fa-sync-alt"></i></button>
                     <button type="button" class="btn btn-fuchsia icon-btn me-2 d-none d-sm-inline" onclick="handleIPClick()" data-tooltip="show_ip"><i class="fas fa-globe"></i></button>

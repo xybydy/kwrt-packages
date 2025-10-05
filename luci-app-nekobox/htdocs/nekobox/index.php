@@ -384,7 +384,7 @@ if (isset($_POST['singbox'])) {
                 writeToLog("Config file not found: $config_file");
             } else {
                 writeToLog("Starting Sing-box");
-                $singbox_version = trim(shell_exec("$singbox_bin version"));
+                $singbox_version = trim(preg_replace(['/^Revision:.*$/m', '/sing-box version\s*/i'], '', shell_exec("$singbox_bin version")));
                 writeToLog("Sing-box version: $singbox_version");
                 
                 shell_exec("mkdir -p " . dirname($singbox_log));
@@ -832,25 +832,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['selected_config'])) {
     });
     </script>
 <?php endif; ?>
-
 <div class="container-sm container-bg mt-0">
     <?php include 'navbar.php'; ?>
     <div class="container-sm text-center col-8">
         <img src="./assets/img/nekobox.png" alt="Icon" class="centered-img">
-        <div id="version-info">
+        <div id="version-info" class="d-flex align-items-center justify-content-center mt-1 gap-1">
             <a id="version-link"
                href="https://github.com/Thaolga/openwrt-nekobox/releases"
                target="_blank">
-                <img id="current-version"
-                     src="./assets/img/curent.svg"
-                     alt="Current Version"
-                     style="max-width: 100%; height: auto;" />
+                <img id="current-version" src="./assets/img/curent.svg" alt="Current Version" class="img-fluid" style="height:23px;">
             </a>
         </div>
     </div>
-<h2 id="neko-title" class="neko-title-style" style="cursor: pointer;" data-bs-toggle="modal" data-bs-target="#systemInfoModal">NekoBox</h2>
 
-<div class="px-4 mt-4 control-box">
+<h2 id="neko-title" class="neko-title-style m-2" style="cursor: pointer;" data-bs-toggle="modal" data-bs-target="#systemInfoModal">NekoBox</h2>
+<?php
+function getSingboxVersion() {
+    $singBoxPath = '/usr/bin/sing-box'; 
+    $command = "$singBoxPath version 2>&1";
+    exec($command, $output, $returnVar);
+
+    if ($returnVar === 0) {
+        foreach ($output as $line) {
+            if (strpos($line, 'version') !== false) {
+                $parts = explode(' ', $line);
+                return end($parts);
+            }
+        }
+    }
+
+    return 'Not installed';
+}
+
+function getMihomoVersion() {
+    $mihomoPath = '/usr/bin/mihomo';
+    
+    if (!file_exists($mihomoPath)) {
+        return 'Not installed';
+    }
+    
+    $command = "$mihomoPath -v 2>&1";  
+    exec($command, $output, $returnVar);
+
+    if ($returnVar === 0 && !empty($output)) {
+        $line = trim($output[0]);
+
+        if (preg_match('/Mihomo Meta\s+([^\s]+)/i', $line, $matches)) {
+            return $matches[1];
+        }
+
+        return $line;
+    }
+
+    return 'Command failed: ' . $returnVar;
+}
+
+
+$singboxVersion = getSingboxVersion();
+$mihomoVersion  = getMihomoVersion();
+?>
+<div class="px-0 px-sm-4 mt-3 control-box">
     <div class="card">
         <div class="card-body">
             <div class="mb-4">
@@ -859,7 +900,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['selected_config'])) {
                     <?php if ($neko_status == '1'): ?>
                         <button type="button" class="btn btn-success">
                             <i class="bi bi-router"></i> 
-                            <span data-translate="mihomoRunning">Mihomo Running</span>
+                            <span data-translate="mihomoRunning" data-index="(<?= htmlspecialchars($mihomoVersion) ?>)"></span>
                         </button>
                     <?php else: ?>
                         <button type="button" class="btn btn-outline-danger">
@@ -875,7 +916,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['selected_config'])) {
                     <?php if ($singbox_status == '1'): ?>
                         <button type="button" class="btn btn-success">
                             <i class="bi bi-hdd-stack"></i> 
-                            <span data-translate="singboxRunning">Sing-box Running</span>
+                            <span data-translate="singboxRunning" data-index="(<?= htmlspecialchars($singboxVersion) ?>)"></span>
                         </button>
                     <?php else: ?>
                         <button type="button" class="btn btn-outline-danger">
@@ -1241,7 +1282,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 
-<div class="px-4 mt-4">
+<div class="px-0 px-sm-4 mt-4">
     <div class="card border-1">
         <ul class="nav nav-tabs mb-0 border-bottom-0 text-center" id="logTabs" role="tablist">
             <li class="nav-item mb-2 me-1" role="presentation">
@@ -1395,37 +1436,68 @@ $(document).ready(function() {
         singboxControl.style.display = 'block';
     }
 
-    function checkForUpdate() {
-        $.ajax({
-            url: 'check_update.php',
-            method: 'GET',
-            dataType: 'json',
-            success: function(data) {
-                if (data.hasUpdate) {
-                    $('#current-version').attr('src', 'https://raw.githubusercontent.com/Thaolga/openwrt-nekobox/refs/heads/main/luci-app-nekobox/htdocs/nekobox/assets/img/Latest.svg');
-                }
-                console.log('Current Version:', data.currentVersion);
-                console.log('Latest Version:', data.latestVersion);
-                console.log('Has Update:', data.hasUpdate);
+    const defaultIcon = './assets/img/curent.svg';
+    const latestIcon  = './assets/img/Latest.svg';
+    const versionFile = 'version_debug.json';
+    const intervalSec = 5 * 60;
 
-                localStorage.setItem('lastUpdateCheck', Date.now());
-                startUpdateTimer(); 
-            },
-            error: function(jqXHR, textStatus, errorThrown) {
-                console.error('AJAX Error:', textStatus, errorThrown);
+    function compareVersions(current, latest) {
+        if (!current || !latest) return null;
+        const parseVersion = (version) => {
+            const parts = version.split("-");
+            const mainVersion = parts[0].split(".").map(num => parseInt(num, 10));
+            const preRelease = parts[1] || "";
+            let preReleaseType = "", preReleaseNum = 0;
+            if (/^r\d+$/i.test(preRelease)) { preReleaseType = "r"; preReleaseNum = parseInt(preRelease.replace(/\D+/g,"")); }
+            else if (/^rc\d+$/i.test(preRelease)) { preReleaseType = "rc"; preReleaseNum = parseInt(preRelease.replace(/\D+/g,"")); }
+            return { mainVersion, preReleaseType, preReleaseNum };
+        };
+        const order = { "":0, "r":1, "rc":2 };
+        const cur = parseVersion(current);
+        const lat = parseVersion(latest);
+        const len = Math.max(cur.mainVersion.length, lat.mainVersion.length);
+        for (let i=0;i<len;i++){
+            const a=cur.mainVersion[i]||0, b=lat.mainVersion[i]||0;
+            if(a>b) return 1; if(a<b) return -1;
+        }
+        if(order[cur.preReleaseType] !== order[lat.preReleaseType]) return order[cur.preReleaseType]-order[lat.preReleaseType];
+        if(cur.preReleaseNum>lat.preReleaseNum) return 1;
+        if(cur.preReleaseNum<lat.preReleaseNum) return -1;
+        return 0;
+    }
+
+    function loadVersionJSON(callback) {
+        $.getJSON(versionFile, function(data) {
+            callback(data);
+        }).fail(function() {
+            callback(null);
+        });
+    }
+
+    function checkForUpdate() {
+        loadVersionJSON(function(data){
+            const now = Math.floor(Date.now()/1000);
+            if(!data || !data.timestamp || now - data.timestamp > intervalSec){
+                $.getJSON('check_update.php', function(newData){
+                    updateIcon(newData);
+                });
+            } else {
+                updateIcon(data);
             }
         });
     }
 
-    function startUpdateTimer() {
-        const now = Date.now();
-        const lastCheck = localStorage.getItem('lastUpdateCheck');
-        let timeSinceLastCheck = lastCheck ? now - parseInt(lastCheck, 10) : Infinity;
-        let timeUntilNextCheck = Math.max(14400000 - timeSinceLastCheck, 0); 
-
-        console.log('Time until next check:', timeUntilNextCheck / 1000 / 60, 'minutes');
-        setTimeout(checkForUpdate, timeUntilNextCheck); 
+    function updateIcon(data){
+        if(!data) { $('#current-version').attr('src', defaultIcon); return; }
+        const hasUpdate = compareVersions(data.currentVersion, data.latestVersion) < 0;
+        $('#current-version').attr('src', hasUpdate ? latestIcon : defaultIcon);
+        console.log("Current:", data.currentVersion, "Latest:", data.latestVersion, "Update:", hasUpdate);
     }
+
+    $(document).ready(function(){
+        checkForUpdate();
+        setInterval(checkForUpdate, 60 * 1000);
+    });
 
     const tabElms = document.querySelectorAll('#logTabs .nav-link');
     const savedTabId = localStorage.getItem('activeTab') || 'pluginLogTab';
@@ -1490,7 +1562,6 @@ $(document).ready(function() {
     fetchLogs();
     handleAutoScroll();
     setupRefreshInterval();
-    startUpdateTimer();
 });
 </script>
 

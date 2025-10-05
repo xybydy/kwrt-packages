@@ -120,15 +120,22 @@ end
 function Module:httpRequest(url)
 	local retCode = 1, data
 	local fh      = io.popen(string.format(
-		'%s --connect-timeout %s %s "%s"; printf "\n$?";', self.curlExec, self.connectTimeout, self.curlParams, url), "r")
+		'%s --connect-timeout %s %s "%s"; printf "\n$?";',
+		self.curlExec,
+		self.connectTimeout,
+		self.curlParams,
+		url
+	), "r")
 	if fh then
-		data       = fh:read("*a")
+		data = fh:read("*a")
 		fh:close()
-		local s, e = data:find("[0-9]+\n?$")
-		retCode    = tonumber(data:sub(s))
-		data       = data:sub(0, s - 2)
-		if not data or data == "" then
-			data = nil
+		if data ~= nil then
+			local s, e = data:find("[0-9]+\n?$")
+			retCode    = tonumber(data:sub(s))
+			data       = data:sub(0, s - 2)
+			if not data or data == "" then
+				data = nil
+			end
 		end
 	else
 		retCode = 1
@@ -218,7 +225,7 @@ function Module:run(currentStatus, lastStatus, timeDiff, timeNow, inetChecked)
 			end
 		end
 		self._connected = false
-	else
+	elseif currentStatus == 0 then
 		self._deadCounter       = 0
 		self._msgSentDisconnect = false
 

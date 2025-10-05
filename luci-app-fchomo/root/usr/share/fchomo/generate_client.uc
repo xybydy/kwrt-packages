@@ -258,6 +258,8 @@ config["global-client-fingerprint"] = uci.get(uciconf, ucitls, 'global_client_fi
 config.tls = {
 	"certificate": uci.get(uciconf, ucitls, 'tls_cert_path'),
 	"private-key": uci.get(uciconf, ucitls, 'tls_key_path'),
+	"client-auth-type": uci.get(uciconf, ucitls, 'tls_client_auth_type'),
+	"client-auth-cert": uci.get(uciconf, ucitls, 'tls_client_auth_cert_path'),
 	"ech-key": uci.get(uciconf, ucitls, 'tls_ech_key')
 };
 /* TLS END */
@@ -391,6 +393,7 @@ if (match(proxy_mode, /tun/))
 		"exclude-interface": [],
 		"udp-timeout": durationToSecond(uci.get(uciconf, uciinbound, 'tun_udp_timeout')) || 300,
 		"endpoint-independent-nat": strToBool(uci.get(uciconf, uciinbound, 'tun_endpoint_independent_nat')),
+		"disable-icmp-forwarding": (uci.get(uciconf, uciinbound, 'tun_disable_icmp_forwarding') === '0') ? false : true,
 		"auto-detect-interface": true
 	});
 /* Inbound END */
@@ -508,7 +511,9 @@ uci.foreach(uciconf, ucinode, (cfg) => {
 		/* Shadowsocks */
 
 		/* Mieru */
-		"port-range": cfg.mieru_port_range,
+		...(isEmpty(cfg.mieru_ports) ? {} : {
+			port: join(',', cfg.mieru_ports)
+		}),
 		transport: cfg.mieru_transport,
 		multiplexing: cfg.mieru_multiplexing,
 		"handshake-mode": cfg.mieru_handshake_mode,
@@ -552,7 +557,7 @@ uci.foreach(uciconf, ucinode, (cfg) => {
 		"global-padding": cfg.type === 'vmess' ? (cfg.vmess_global_padding === '0' ? false : true) : null,
 		"authenticated-length": strToBool(cfg.vmess_authenticated_length),
 		"packet-encoding": cfg.vmess_packet_encoding,
-		encryption: cfg.vless_encryption,
+		encryption: cfg.vless_encryption === '1' ? cfg.vless_encryption_encryption : null,
 
 		/* WireGuard */
 		ip: cfg.wireguard_ip,
@@ -588,6 +593,8 @@ uci.foreach(uciconf, ucinode, (cfg) => {
 		fingerprint: cfg.tls_fingerprint,
 		alpn: cfg.tls_alpn, // Array
 		"skip-cert-verify": strToBool(cfg.tls_skip_cert_verify),
+		certificate: cfg.tls_cert_path, // mTLS
+		"private-key": cfg.tls_key_path, // mTLS
 		"client-fingerprint": cfg.tls_client_fingerprint,
 		"ech-opts": cfg.tls_ech === '1' ? {
 			enable: true,

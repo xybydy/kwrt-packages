@@ -49,7 +49,6 @@ function getRuntimeLog(name, option_index, section_id, in_table) {
 
 	if (section) {
 		const selected = uci.get('fchomo', section, option) || 'warning';
-		const choices = Object.fromEntries(hm.log_levels);
 
 		log_level_el = E('select', {
 			'id': this.cbid(section_id),
@@ -63,11 +62,11 @@ function getRuntimeLog(name, option_index, section_id, in_table) {
 			})
 		});
 
-		Object.keys(choices).forEach((v) => {
+		hm.log_levels.forEach(([k, v]) => {
 			log_level_el.appendChild(E('option', {
-				'value': v,
-				'selected': (v === selected) ? '' : null
-			}, [ choices[v] ]));
+				'value': k,
+				'selected': (k === selected) ? '' : null
+			}, [ v ]));
 		});
 	}
 
@@ -85,7 +84,7 @@ function getRuntimeLog(name, option_index, section_id, in_table) {
 	);
 
 	let log;
-	poll.add(L.bind(function() {
+	poll.add(function() {
 		return fs.read_direct(String.format('%s/%s.log', hm_dir, filename), 'text')
 		.then((res) => {
 			log = E('pre', { 'wrap': 'pre' }, [
@@ -105,7 +104,7 @@ function getRuntimeLog(name, option_index, section_id, in_table) {
 
 			dom.content(log_textarea, log);
 		});
-	}));
+	});
 
 	return E([
 		E('style', [ css ]),

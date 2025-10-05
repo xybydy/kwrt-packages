@@ -157,7 +157,7 @@ function parse_dnserver(server_addr, default_protocol) {
 		return null;
 
 	if (!match(server_addr, /:\/\//))
-		server_addr = (default_protocol || 'udp') + '://' + server_addr;
+		server_addr = (default_protocol || 'udp') + '://' + (validation('ip6addr', dns_server) ? `[${dns_server}]` : dns_server);
 	server_addr = parseURL(server_addr);
 
 	return {
@@ -407,12 +407,13 @@ config.log = {
 };
 
 /* NTP */
-config.ntp = {
-	enabled: true,
-	server: ntp_server,
-	detour: 'direct-out',
-	domain_resolver: 'default-dns',
-};
+if (!isEmpty(ntp_server))
+	config.ntp = {
+		enabled: true,
+		server: ntp_server,
+		detour: 'direct-out',
+		domain_resolver: 'default-dns',
+	};
 
 /* DNS start */
 /* Default settings */
@@ -455,7 +456,7 @@ if (!isEmpty(main_node)) {
 		push(config.dns.rules, {
 			rule_set: 'direct-domain',
 			action: 'route',
-			server: (routing_mode === 'bypass_mainland_china' ) ? 'china-dns' : 'default-dns'
+			server: (routing_mode === 'bypass_mainland_china') ? 'china-dns' : 'default-dns'
 		});
 
 	/* Filter out SVCB/HTTPS queries for "exquisite" Apple devices */
@@ -754,18 +755,18 @@ if (!isEmpty(main_node)) {
 				push(config.endpoints, generate_endpoint(outbound));
 				config.endpoints[length(config.endpoints)-1].bind_interface = cfg.bind_interface;
 				config.endpoints[length(config.endpoints)-1].detour = get_outbound(cfg.outbound);
-				if (cfg.domain_resolver || cfg.domain_strategy)
+				if (cfg.domain_resolver)
 					config.endpoints[length(config.endpoints)-1].domain_resolver = {
-						server: get_resolver(cfg.domain_resolver || default_outbound_dns),
+						server: get_resolver(cfg.domain_resolver),
 						strategy: cfg.domain_strategy
 					};
 			} else {
 				push(config.outbounds, generate_outbound(outbound));
 				config.outbounds[length(config.outbounds)-1].bind_interface = cfg.bind_interface;
 				config.outbounds[length(config.outbounds)-1].detour = get_outbound(cfg.outbound);
-				if (cfg.domain_resolver || cfg.domain_strategy)
+				if (cfg.domain_resolver)
 					config.outbounds[length(config.outbounds)-1].domain_resolver = {
-						server: get_resolver(cfg.domain_resolver || default_outbound_dns),
+						server: get_resolver(cfg.domain_resolver),
 						strategy: cfg.domain_strategy
 					};
 			}
@@ -811,7 +812,7 @@ if (!isEmpty(main_node)) {
 	/* Avoid DNS loop */
 	config.route.default_domain_resolver = {
 		action: 'route',
-		server: 'default-dns',
+		server: (routing_mode === 'bypass_mainland_china') ? 'china-dns' : 'default-dns',
 		strategy: (ipv6_support !== '1') ? 'prefer_ipv4' : null
 	};
 
