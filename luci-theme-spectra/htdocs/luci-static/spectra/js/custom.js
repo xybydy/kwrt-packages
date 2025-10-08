@@ -1,5 +1,24 @@
 document.addEventListener("DOMContentLoaded", function () {
     let isEnabled = localStorage.getItem('backgroundEnabled') !== 'false';
+    let currentLanguage = 'zh';
+
+    fetch('/luci-static/spectra/bgm/save_language.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: 'action=get_language'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success && data.language) {
+            currentLanguage = data.language;
+        }
+        updateUIText();
+    })
+    .catch(error => {
+        updateUIText();
+    });
 
     const isAnimationEnabled = localStorage.getItem('animationEnabled') !== 'false';
     toggleAnimation(isAnimationEnabled);
@@ -71,6 +90,8 @@ document.addEventListener("DOMContentLoaded", function () {
             'fontNotoSerif': 'Noto Serif',
             'fontComicNeue': 'Comic Neue',
             'fontSettings': 'Font Settings', 
+            'fontNotoSans': 'Noto Sans',
+            'fontCinzelDecorative': 'Cinzel Decorative',
             'fontSize': 'Font Size',
             'fontColor': 'Font Color',
             'black': 'Black',
@@ -121,6 +142,8 @@ document.addEventListener("DOMContentLoaded", function () {
             'fontDMSerif': '衬线字体',
             'fontNotoSerif': '思源宋体',
             'fontComicNeue': '漫画字体',
+            'fontNotoSans': '思源黑体',
+            'fontCinzelDecorative': 'Cinzel 装饰体',
             'fontSettings': '字体设置', 
             'fontSize': '字体大小',
             'fontColor': '字体颜色',
@@ -142,7 +165,7 @@ document.addEventListener("DOMContentLoaded", function () {
             'guide7': '7. 项目地址：<a class="github-link" href="https://github.com/Thaolga/openwrt-nekobox" target="_blank">点击访问</a>',
             'themeTitle': 'Spectra 主题设置'
         },
-        'zh-tw': {
+        'hk': {
             'enabled': '已啟用',
             'disabled': '已停用',
             'currentTheme': '當前主題: ',
@@ -173,6 +196,8 @@ document.addEventListener("DOMContentLoaded", function () {
             'fontDMSerif': '襯線字體',
             'fontNotoSerif': '思源宋體',
             'fontComicNeue': '漫畫字體',
+            'fontNotoSans': '思源黑體',
+            'fontCinzelDecorative': 'Cinzel 裝飾體',
             'fontSettings': '字型設定', 
             'fontSize': '字體大小',
             'fontColor': '字體顏色',
@@ -225,6 +250,8 @@ document.addEventListener("DOMContentLoaded", function () {
             'fontDMSerif': 'DM Serif',
             'fontNotoSerif': 'Noto Serif',
             'fontComicNeue': 'Comic Neue',
+            'fontNotoSans': '노토 산스',
+            'fontCinzelDecorative': '신젤 장식체',
             'fontSettings': '폰트 설정',
             'fontSize': '폰트 크기',
             'fontColor': '폰트 색상',
@@ -277,6 +304,8 @@ document.addEventListener("DOMContentLoaded", function () {
             'fontDMSerif': 'DM Serif',
             'fontNotoSerif': 'Noto Serif',
             'fontComicNeue': 'Comic Neue',
+            'fontNotoSans': 'Noto Sans',
+            'fontCinzelDecorative': 'Cinzel Decorative',
             'fontSettings': 'フォント設定',
             'fontSize': 'フォントサイズ',
             'fontColor': 'フォント色',
@@ -330,6 +359,8 @@ document.addEventListener("DOMContentLoaded", function () {
             'fontNotoSerif': 'Noto Serif',
             'fontComicNeue': 'Comic Neue',
             'fontSettings': 'Cài đặt phông chữ',
+            'fontNotoSans': 'Noto Sans',
+            'fontCinzelDecorative': 'Cinzel Decorative',
             'fontSize': 'Cỡ chữ',
             'fontColor': 'Màu chữ',
             'black': 'Đen',
@@ -382,6 +413,8 @@ document.addEventListener("DOMContentLoaded", function () {
             'fontNotoSerif': 'Noto Serif',
             'fontComicNeue': 'Comic Neue',
             'fontSettings': 'การตั้งค่าตัวอักษร',
+            'fontNotoSans': 'Noto Sans',
+            'fontCinzelDecorative': 'Cinzel Decorative',
             'fontSize': 'ขนาดตัวอักษร',
             'fontColor': 'สีตัวอักษร',
             'black': 'ดำ',
@@ -436,6 +469,8 @@ document.addEventListener("DOMContentLoaded", function () {
             'fontSettings': 'Настройки шрифта',
             'fontSize': 'Размер шрифта',
             'fontColor': 'Цвет шрифта',
+            'fontNotoSans': 'Noto Sans',
+            'fontCinzelDecorative': 'Cinzel Decorative',
             'black': 'Черный',
             'white': 'Белый',
             'red': 'Красный',
@@ -486,6 +521,8 @@ document.addEventListener("DOMContentLoaded", function () {
             'fontNotoSerif': 'Noto Serif',
             'fontComicNeue': 'Comic Neue',
             'fontSettings': 'Schrifteinstellungen',
+            'fontNotoSans': 'Noto Sans',
+            'fontCinzelDecorative': 'Cinzel Decorative',
             'fontSize': 'Schriftgröße',
             'fontColor': 'Schriftfarbe',
             'black': 'Schwarz',
@@ -540,6 +577,8 @@ document.addEventListener("DOMContentLoaded", function () {
             'fontSettings': 'Paramètres police',
             'fontSize': 'Taille police',
             'fontColor': 'Couleur police',
+            'fontNotoSans': 'Noto Sans',
+            'fontCinzelDecorative': 'Cinzel Decorative',
             'black': 'Noir',
             'white': 'Blanc',
             'red': 'Rouge',
@@ -590,6 +629,8 @@ document.addEventListener("DOMContentLoaded", function () {
             'fontNotoSerif': 'Noto Serif',
             'fontComicNeue': 'Comic Neue',
             'fontSettings': 'إعدادات الخط',
+            'fontNotoSans': 'Noto Sans',
+            'fontCinzelDecorative': 'Cinzel Decorative',
             'fontSize': 'حجم الخط',
             'fontColor': 'لون الخط',
             'black': 'أسود',
@@ -644,6 +685,8 @@ document.addEventListener("DOMContentLoaded", function () {
             'fontSettings': 'Configuración de fuente',
             'fontSize': 'Tamaño de fuente',
             'fontColor': 'Color de fuente',
+            'fontNotoSans': 'Noto Sans',
+            'fontCinzelDecorative': 'Cinzel Decorative',
             'black': 'Negro',
             'white': 'Blanco',
             'red': 'Rojo',
@@ -696,6 +739,8 @@ document.addEventListener("DOMContentLoaded", function () {
             'fontSettings': 'ফন্ট সেটিংস',
             'fontSize': 'ফন্টের আকার',
             'fontColor': 'ফন্টের রঙ',
+            'fontNotoSans': 'Noto Sans',
+            'fontCinzelDecorative': 'Cinzel Decorative',
             'black': 'কালো',
             'white': 'সাদা',
             'red': 'লাল',
@@ -716,12 +761,11 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     };
 
-    let currentLanguage = localStorage.getItem('currentLanguage') || 'zh';
 
     function getLanguageButtonText() {
         switch(currentLanguage) {
             case 'zh': return '繁體中文';
-            case 'zh-tw': return 'English';
+            case 'hk': return 'English';
             case 'en': return '한국어';
             case 'ko': return '日本語';
             case 'ja': return 'Tiếng Việt';
@@ -740,7 +784,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function getLanguageButtonColor() {
         switch(currentLanguage) {
             case 'zh': return '#f44336';
-            case 'zh-tw': return '#2196F3';
+            case 'hk': return '#2196F3';
             case 'en': return '#4CAF50';
             case 'ko': return '#FF9800';
             case 'ja': return '#9C27B0';
@@ -992,6 +1036,8 @@ document.addEventListener("DOMContentLoaded", function () {
                 case 'fredoka': nextFont = 'dmserif'; break;
                 case 'dmserif': nextFont = 'notoserif'; break;
                 case 'notoserif': nextFont = 'comicneue'; break;
+                case 'comicneue': nextFont = 'notosans'; break;
+                case 'notosans': nextFont = 'cinzeldecorative'; break; 
                 default: nextFont = 'default';
             }
     
@@ -1057,8 +1103,8 @@ document.addEventListener("DOMContentLoaded", function () {
             e.stopPropagation();
     
             switch(currentLanguage) {
-                case 'zh': currentLanguage = 'zh-tw'; break;
-                case 'zh-tw': currentLanguage = 'en'; break;
+                case 'zh': currentLanguage = 'hk'; break;
+                case 'hk': currentLanguage = 'en'; break;
                 case 'en': currentLanguage = 'ko'; break;
                 case 'ko': currentLanguage = 'ja'; break;
                 case 'ja': currentLanguage = 'vi'; break;
@@ -1073,17 +1119,28 @@ document.addEventListener("DOMContentLoaded", function () {
                 default: currentLanguage = 'zh';
 
             }
-            localStorage.setItem('currentLanguage', currentLanguage);
-    
-            this.querySelector('span').textContent = getLanguageButtonText();
-            this.querySelector('div').innerHTML = `<i class="bi bi-translate" style="color:${getLanguageButtonColor()}"></i>`;
-    
-            updateUIText();
-    
-            const fontSettingsOverlay = document.getElementById('font-settings-overlay');
-            if (fontSettingsOverlay) {
-                updateFontSettingsText();
-            }
+
+            fetch('/luci-static/spectra/bgm/save_language.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'action=save_language&language=' + encodeURIComponent(currentLanguage)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    this.querySelector('span').textContent = getLanguageButtonText();
+                    this.querySelector('div').innerHTML = `<i class="bi bi-translate" style="color:${getLanguageButtonColor()}"></i>`;
+            
+                    updateUIText();
+                }
+            })
+            .catch(error => {
+                this.querySelector('span').textContent = getLanguageButtonText();
+                this.querySelector('div').innerHTML = `<i class="bi bi-translate" style="color:${getLanguageButtonColor()}"></i>`;
+                updateUIText();
+            });
         });
 
         document.getElementById('settings-icon').addEventListener('click', function(e) {
@@ -1752,6 +1809,12 @@ document.addEventListener("DOMContentLoaded", function () {
             case 'comicneue':
                 fontFamily = "'Comic Neue', cursive";
                 break;
+            case 'notosans':
+                fontFamily = "'Noto Sans', sans-serif";
+                break;
+            case 'cinzeldecorative':
+                fontFamily = "'Cinzel Decorative', cursive";
+                break;
             default:
                 fontFamily = "-apple-system, BlinkMacSystemFont, sans-serif";
         }
@@ -1899,6 +1962,8 @@ document.addEventListener("DOMContentLoaded", function () {
             case 'dmserif': return translateText('fontDMSerif');
             case 'notoserif': return translateText('fontNotoSerif');
             case 'comicneue': return translateText('fontComicNeue');
+            case 'notosans': return translateText('fontNotoSans');
+            case 'cinzeldecorative': return translateText('fontCinzelDecorative');
             default: return translateText('fontDefault');
         }
     }
