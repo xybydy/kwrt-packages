@@ -3,6 +3,9 @@
 
 VERSION="1.2.0" # will become obsolete in future releases as version string is now in the init script
 
+# uncomment to enable debug messages
+# QOSMATE_DEBUG=1
+
 _NL_='
 '
 DEFAULT_IFS=" 	${_NL_}"
@@ -63,6 +66,10 @@ log_msg() {
 }
 
 config_load 'qosmate' || { error_out "Failed to get UCI config."; exit 1; }
+
+# Check if Software Flow Offloading is enabled
+SFO_ENABLED=0
+[ "$(uci -q get firewall.@defaults[0].flow_offloading)" = "1" ] && SFO_ENABLED=1
 
 # Calculated values
 FIRST500MS=$((DOWNRATE * 500 / 8))
@@ -139,8 +146,8 @@ calculate_ack_rates
 
 # Debug function
 debug_log() {
-    local message="$1"
-    logger -t qosmate "$message"
+    [ -n "$QOSMATE_DEBUG" ] || return 0
+    logger -s -t qosmate "$1" >&2
 }
 
 # Function to create NFT sets from config
@@ -622,6 +629,263 @@ generate_dynamic_nft_rules() {
     fi
 }
 
+##############################
+# Rate Limit Functions
+##############################
+
+# Build nftables device match conditions from target values with direction support
+# Detects IP/IPv6 addresses and generates appropriate match statements
+# Args: $1=target_values, $2=direction (saddr/daddr), $3=result_var_name
+# shellcheck disable=SC2329
+build_device_conditions_for_direction() {
+    local target_values="$1" direction="$2" result_var="$3"
+    local result="" ipv4_pos="" ipv4_neg="" ipv6_pos="" ipv6_neg=""
+    local value negation v
+    
+    for value in $target_values; do
+        negation=""
+        v="$value"
+        
+        # Check for negation prefix
+        case "$v" in
+            '!='*)
+                negation="!="
+                v="${v#!=}"
+                ;;
+        esac
+        
+        # Check for set reference (@setname)
+        case "$v" in
+            '@'*)
+                # Set reference - determine family and use correct prefix
+                local setname="${v#@}"
+                local set_family
+                set_family="$(awk -v set="$setname" '$1 == set {print $2}' /tmp/qosmate_set_families 2>/dev/null)"
+                
+                local ip_prefix='ip'
+                [ "$set_family" = "ipv6" ] && ip_prefix='ip6'
+                
+                if [ -n "$negation" ]; then
+                    result="${result}${result:+ }${ip_prefix} ${direction} != @${setname}"
+                else
+                    result="${result}${result:+ }${ip_prefix} ${direction} @${setname}"
+                fi
+                ;;
+            *)
+                # Detect address type and collect for set notation
+                # Skip MAC addresses (not supported)
+                if printf '%s' "$v" | grep -qE '^([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$'; then
+                    log_msg -warn "MAC address '$v' in rate limit rule ignored (not supported)"
+                elif printf '%s' "$v" | grep -q ':' && ! printf '%s' "$v" | grep -qE '^([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$'; then
+                    # IPv6 address (contains colon, not a MAC address)
+                    if [ -n "$negation" ]; then
+                        ipv6_neg="${ipv6_neg}${ipv6_neg:+,}${v}"
+                    else
+                        ipv6_pos="${ipv6_pos}${ipv6_pos:+,}${v}"
+                    fi
+                else
+                    # IPv4 address or CIDR
+                    if [ -n "$negation" ]; then
+                        ipv4_neg="${ipv4_neg}${ipv4_neg:+,}${v}"
+                    else
+                        ipv4_pos="${ipv4_pos}${ipv4_pos:+,}${v}"
+                    fi
+                fi
+                ;;
+        esac
+    done
+    
+    # Build set-based conditions
+    if [ -n "$ipv4_neg" ]; then
+        result="${result}${result:+ }ip ${direction} != { ${ipv4_neg} }"
+    fi
+    if [ -n "$ipv4_pos" ]; then
+        result="${result}${result:+ }ip ${direction} { ${ipv4_pos} }"
+    fi
+    if [ -n "$ipv6_neg" ]; then
+        result="${result}${result:+ }ip6 ${direction} != { ${ipv6_neg} }"
+    fi
+    if [ -n "$ipv6_pos" ]; then
+        result="${result}${result:+ }ip6 ${direction} { ${ipv6_pos} }"
+    fi
+    
+    eval "${result_var}=\"\${result}\""
+}
+
+# Generate rate limit rules from UCI config
+generate_ratelimit_rules() {
+    local rules=""
+    
+    # Process each ratelimit section
+    # shellcheck disable=SC2329
+    process_ratelimit_section() {
+        local section="$1"
+        local name enabled download_limit upload_limit burst_factor
+        local target_values meter_suffix download_kbytes upload_kbytes
+        local download_burst upload_burst
+        
+        config_get_bool enabled "$section" enabled 1
+        [ "$enabled" -eq 0 ] && return 0
+        
+        config_get name "$section" name
+        [ -z "$name" ] && {
+            log_msg -warn "Rate limit section '$section' has no name - skipping"
+            return 0
+        }
+        
+        config_get download_limit "$section" download_limit "0"
+        config_get upload_limit "$section" upload_limit "0"
+        config_get burst_factor "$section" burst_factor "1.0"
+        
+        config_get target_values "$section" target
+        
+        # Validate: need at least one target and one limit
+        [ -z "$target_values" ] && {
+            log_msg -warn "Rate limit rule '$name' has no target devices - skipping"
+            return 0
+        }
+        [ "$download_limit" -eq 0 ] && [ "$upload_limit" -eq 0 ] && {
+            log_msg -warn "Rate limit rule '$name' has no bandwidth limits - skipping"
+            return 0
+        }
+        
+        # Sanitize name for meter usage (only alphanumeric and underscore)
+        meter_suffix="$(printf '%s' "$name" | tr ' ' '_' | tr -cd 'a-zA-Z0-9_')"
+        [ -z "$meter_suffix" ] && meter_suffix="unnamed_${section}"
+        
+        # Convert Kbit/s to kbytes/second (1 Kbit/s = 0.125 kbytes/s)
+        download_kbytes=$((download_limit / 8))
+        upload_kbytes=$((upload_limit / 8))
+        
+        # Calculate burst using robust decimal parsing
+        # If burst_factor is 0, we don't add burst parameter at all (strict rate limit)
+        local download_burst_param='' upload_burst_param=''
+        
+        # Parse burst_factor robustly (handle cases like "1.", ".5", "0.25", etc.)
+        case "$burst_factor" in
+            0|0.0|0.00) 
+                # No burst - strict limiting
+                ;;
+            *.*) 
+                # Has decimal point
+                local burst_int="${burst_factor%.*}"
+                local burst_dec="${burst_factor#*.}"
+                
+                # Handle missing parts
+                [ -z "$burst_int" ] && burst_int='0'
+                [ -z "$burst_dec" ] && burst_dec='0'
+                
+                # Pad or truncate decimal to 2 digits for centiprecision
+                case "${#burst_dec}" in
+                    1) burst_dec="${burst_dec}0" ;;  # 0.5 -> 50
+                    2) ;;  # 0.25 -> 25
+                    *) burst_dec="${burst_dec:0:2}" ;;  # 0.125 -> 12
+                esac
+                
+                # Calculate: burst = rate * (int + dec/100)
+                local download_burst=$((download_kbytes * burst_int + download_kbytes * burst_dec / 100))
+                local upload_burst=$((upload_kbytes * burst_int + upload_kbytes * burst_dec / 100))
+                
+                [ "$download_burst" -gt 0 ] && download_burst_param=" burst ${download_burst} kbytes"
+                [ "$upload_burst" -gt 0 ] && upload_burst_param=" burst ${upload_burst} kbytes"
+                ;;
+            *)
+                # Integer only (e.g. "1", "2")
+                local download_burst=$((download_kbytes * burst_factor))
+                local upload_burst=$((upload_kbytes * burst_factor))
+                download_burst_param=" burst ${download_burst} kbytes"
+                upload_burst_param=" burst ${upload_burst} kbytes"
+                ;;
+        esac
+        
+        # Separate targets by IP family
+        local targets_v4='' targets_v6='' value prefix setname set_family
+        
+        for value in $target_values; do
+            # Preserve != prefix
+            prefix=''
+            case "$value" in
+                '!='*)
+                    prefix='!='
+                    value="${value#!=}"
+                    ;;
+            esac
+            
+            # Check if it's a set reference
+            case "$value" in
+                '@'*)
+                    setname="${value#@}"
+                    set_family="$(awk -v set="$setname" '$1 == set {print $2}' /tmp/qosmate_set_families 2>/dev/null)"
+                    if [ "$set_family" = "ipv6" ]; then
+                        targets_v6="${targets_v6}${targets_v6:+ }${prefix}${value}"
+                    else
+                        targets_v4="${targets_v4}${targets_v4:+ }${prefix}${value}"
+                    fi
+                    ;;
+                *)
+                    # Check if IPv6 (contains colon and not MAC)
+                    if printf '%s' "$value" | grep -q ':' && ! printf '%s' "$value" | grep -qE '^([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$'; then
+                        targets_v6="${targets_v6}${targets_v6:+ }${prefix}${value}"
+                    else
+                        targets_v4="${targets_v4}${targets_v4:+ }${prefix}${value}"
+                    fi
+                    ;;
+            esac
+        done
+        
+        # Generate IPv4 rules
+        if [ -n "$targets_v4" ]; then
+            if [ "$download_limit" -gt 0 ]; then
+                local download_conditions_v4=''
+                build_device_conditions_for_direction "$targets_v4" "daddr" download_conditions_v4
+                [ -n "$download_conditions_v4" ] && rules="${rules}
+        # ${name} - Download limit (IPv4)
+        ${download_conditions_v4} meter ${meter_suffix}_dl4 { ip daddr limit rate over ${download_kbytes} kbytes/second${download_burst_param} } counter drop comment \"${name} download\""
+            fi
+            
+            if [ "$upload_limit" -gt 0 ]; then
+                local upload_conditions_v4=''
+                build_device_conditions_for_direction "$targets_v4" "saddr" upload_conditions_v4
+                [ -n "$upload_conditions_v4" ] && rules="${rules}
+        # ${name} - Upload limit (IPv4)
+        ${upload_conditions_v4} meter ${meter_suffix}_ul4 { ip saddr limit rate over ${upload_kbytes} kbytes/second${upload_burst_param} } counter drop comment \"${name} upload\""
+            fi
+        fi
+        
+        # Generate IPv6 rules
+        if [ -n "$targets_v6" ]; then
+            if [ "$download_limit" -gt 0 ]; then
+                local download_conditions_v6=''
+                build_device_conditions_for_direction "$targets_v6" "daddr" download_conditions_v6
+                [ -n "$download_conditions_v6" ] && rules="${rules}
+        # ${name} - Download limit (IPv6)
+        ${download_conditions_v6} meter ${meter_suffix}_dl6 { ip6 daddr limit rate over ${download_kbytes} kbytes/second${download_burst_param} } counter drop comment \"${name} download\""
+            fi
+            
+            if [ "$upload_limit" -gt 0 ]; then
+                local upload_conditions_v6=''
+                build_device_conditions_for_direction "$targets_v6" "saddr" upload_conditions_v6
+                [ -n "$upload_conditions_v6" ] && rules="${rules}
+        # ${name} - Upload limit (IPv6)
+        ${upload_conditions_v6} meter ${meter_suffix}_ul6 { ip6 saddr limit rate over ${upload_kbytes} kbytes/second${upload_burst_param} } counter drop comment \"${name} upload\""
+            fi
+        fi
+    }
+    
+    # Process all ratelimit sections from UCI
+    config_foreach process_ratelimit_section ratelimit
+    
+    # Output rate limit chain if rules exist
+    if [ -n "$rules" ]; then
+        printf '\n%s\n%s\n%s%s\n%s\n' \
+            "    # Rate Limit Chain" \
+            "    chain ratelimit {" \
+            "        type filter hook forward priority 0; policy accept;" \
+            "${rules}" \
+            "    }"
+    fi
+}
+
 # Generate dynamic rules
 DYNAMIC_RULES=$(generate_dynamic_nft_rules)
 
@@ -931,6 +1195,8 @@ ${DYNAMIC_RULES}
           fi
         )
     }
+
+$(generate_ratelimit_rules)
 }
 DSCPEOF
 
@@ -1092,7 +1358,7 @@ setup_game_qdisc() {
             ## send game packets to 10:, they're all treated the same
         ;;
         "fq_codel")
-        tc qdisc add dev "$DEV" parent "1:11" fq_codel memory_limit $((RATE*200/8)) interval "${INTVL}ms" target "${TARG}ms" quantum $((MTU * 2))
+        tc qdisc add dev "$DEV" parent "1:11" handle 10: fq_codel memory_limit $((RATE*200/8)) interval "${INTVL}ms" target "${TARG}ms" quantum $((MTU * 2))
         ;;
         "netem")
             # Only apply NETEM if this direction is enabled
@@ -1192,8 +1458,11 @@ setup_hfsc() {
         fi
     done
 
-    # Apply DSCP Filters (only on LAN/IFB)
-    if [ "$DIR" = "lan" ]; then
+    # Apply DSCP Filters (on ingress always, on egress only when SFO active)
+    # Ingress always needs filters, egress needs them only with SFO
+    # Without SFO: nftables priomap handles egress classification
+    # With SFO: nftables bypassed, tc filters needed for classification
+    if [ "$DIR" = "lan" ] || [ "$SFO_ENABLED" = "1" ]; then
         # Delete existing filters first
         tc filter del dev "$DEV" parent 1: prio 1 > /dev/null 2>&1
         tc filter del dev "$DEV" parent 1: prio 2 > /dev/null 2>&1 # Also delete prio 2
@@ -1205,8 +1474,36 @@ setup_hfsc() {
             done
         done
     fi
+    :
 }
 
+
+qdisc_setup_failed() {
+    [ -n "$1" ] && error_out "$1"
+    error_out "Failed to set up $ROOT_QDISC."
+    # *** Any additional error handling needed? ***
+    exit 1
+}
+
+# Appends option to ${CAKE_OPTS}
+# 1: parameter: nat|wash|ack_filter|*
+# 2: selector (1|0)
+#    for wash, nat, ack-filter: selector value '1' translates to prefix '', any other value translates to prefix 'no[-]'
+#    for other options: selector value '1' translates to 'don't skip option', any other value translates to 'skip option'
+append_cake_opt() {
+    [ ${#} = 2 ] || { error_out "append_cake_opt: invalid args '$*'."; return 1; }
+    local prefix='' \
+        param="$1" selector="$2"
+    [ -n "$param" ] || return 0
+    [ "$selector" != 1 ] &&
+        case "$param" in
+            wash|nat) prefix='no' ;;
+            ack-filter) prefix='no-' ;;
+            *) return 0 ;;
+        esac
+    CAKE_OPTS="${CAKE_OPTS} ${prefix}${param}"
+    :
+}
 
 # Function to setup CAKE qdisc
 setup_cake() {
@@ -1214,52 +1511,44 @@ setup_cake() {
     tc qdisc del dev "$LAN" root > /dev/null 2>&1
     
     # Get CAKE link parameters
-    local cake_link_params="$(get_cake_link_params)"
-    
+    local ack_filter_egress_val cake_link_params="$(get_cake_link_params)"
+
     # Egress (Upload) CAKE setup
-    EGRESS_CAKE_OPTS="bandwidth ${UPRATE}kbit"
-    [ -n "$PRIORITY_QUEUE_EGRESS" ] && EGRESS_CAKE_OPTS="$EGRESS_CAKE_OPTS $PRIORITY_QUEUE_EGRESS"
-    [ "$HOST_ISOLATION" -eq 1 ] && EGRESS_CAKE_OPTS="$EGRESS_CAKE_OPTS dual-srchost"
-    [ "$NAT_EGRESS" -eq 1 ] && EGRESS_CAKE_OPTS="$EGRESS_CAKE_OPTS nat" || EGRESS_CAKE_OPTS="$EGRESS_CAKE_OPTS nonat"
-    [ "$WASHDSCPUP" -eq 1 ] && EGRESS_CAKE_OPTS="$EGRESS_CAKE_OPTS wash" || EGRESS_CAKE_OPTS="$EGRESS_CAKE_OPTS nowash"
-    
-    if [ "$ACK_FILTER_EGRESS" = "auto" ]; then
-        if [ $((DOWNRATE / UPRATE)) -ge 15 ]; then
-            EGRESS_CAKE_OPTS="$EGRESS_CAKE_OPTS ack-filter"
-        else
-            EGRESS_CAKE_OPTS="$EGRESS_CAKE_OPTS no-ack-filter"
-        fi
-    elif [ "$ACK_FILTER_EGRESS" -eq 1 ]; then
-        EGRESS_CAKE_OPTS="$EGRESS_CAKE_OPTS ack-filter"
-    else
-        EGRESS_CAKE_OPTS="$EGRESS_CAKE_OPTS no-ack-filter"
-    fi
-    
-    [ -n "$RTT" ] && EGRESS_CAKE_OPTS="$EGRESS_CAKE_OPTS rtt ${RTT}ms"
-    [ -n "$cake_link_params" ] && EGRESS_CAKE_OPTS="$EGRESS_CAKE_OPTS $cake_link_params"
-    # Only add LINK_COMPENSATION if explicitly set (don't add noatm as ADSL presets already set atm)
-    [ -n "$LINK_COMPENSATION" ] && EGRESS_CAKE_OPTS="$EGRESS_CAKE_OPTS $LINK_COMPENSATION"
-    [ -n "$EXTRA_PARAMETERS_EGRESS" ] && EGRESS_CAKE_OPTS="$EGRESS_CAKE_OPTS $EXTRA_PARAMETERS_EGRESS"
-    
+    case "$ACK_FILTER_EGRESS" in
+        auto) ack_filter_egress_val=$(( (DOWNRATE / UPRATE) >= 15 )) ;;
+        *[!0-9]*|'') qdisc_setup_failed "Invalid value '$ACK_FILTER_EGRESS' for ACK_FILTER_EGRESS." ;;
+        *) ack_filter_egress_val=$ACK_FILTER_EGRESS ;;
+    esac
+
+    local CAKE_OPTS="bandwidth ${UPRATE}kbit"
     # shellcheck disable=SC2086
-    tc qdisc add dev "$WAN" root cake $EGRESS_CAKE_OPTS
+    append_cake_opt "$PRIORITY_QUEUE_EGRESS" "1" &&
+    append_cake_opt "dual-srchost" "$HOST_ISOLATION" &&
+    append_cake_opt "rtt ${RTT}ms" "${RTT:+1}" &&
+    append_cake_opt "$cake_link_params" "1" &&
+    append_cake_opt "$LINK_COMPENSATION" "1" &&
+    append_cake_opt "$EXTRA_PARAMETERS_EGRESS" "1" &&
+    append_cake_opt "nat" "$NAT_EGRESS" &&
+    append_cake_opt "wash" "$WASHDSCPUP" &&
+    append_cake_opt "ack-filter" "$ack_filter_egress_val" &&
+    tc qdisc add dev "$WAN" root handle 1: cake $CAKE_OPTS || qdisc_setup_failed
+debug_log "EGRESS cake opts: '$CAKE_OPTS'"
     
+
     # Ingress (Download) CAKE setup
-    INGRESS_CAKE_OPTS="bandwidth ${DOWNRATE}kbit ingress"
-    [ "$AUTORATE_INGRESS" -eq 1 ] && INGRESS_CAKE_OPTS="$INGRESS_CAKE_OPTS autorate-ingress"
-    [ -n "$PRIORITY_QUEUE_INGRESS" ] && INGRESS_CAKE_OPTS="$INGRESS_CAKE_OPTS $PRIORITY_QUEUE_INGRESS"
-    [ "$HOST_ISOLATION" -eq 1 ] && INGRESS_CAKE_OPTS="$INGRESS_CAKE_OPTS dual-dsthost"
-    [ "$NAT_INGRESS" -eq 1 ] && INGRESS_CAKE_OPTS="$INGRESS_CAKE_OPTS nat" || INGRESS_CAKE_OPTS="$INGRESS_CAKE_OPTS nonat"
-    [ "$WASHDSCPDOWN" -eq 1 ] && INGRESS_CAKE_OPTS="$INGRESS_CAKE_OPTS wash" || INGRESS_CAKE_OPTS="$INGRESS_CAKE_OPTS nowash"
-    
-    [ -n "$RTT" ] && INGRESS_CAKE_OPTS="$INGRESS_CAKE_OPTS rtt ${RTT}ms"
-    [ -n "$cake_link_params" ] && INGRESS_CAKE_OPTS="$INGRESS_CAKE_OPTS $cake_link_params"
-    # Only add LINK_COMPENSATION if explicitly set (don't add noatm as ADSL presets already set atm)
-    [ -n "$LINK_COMPENSATION" ] && INGRESS_CAKE_OPTS="$INGRESS_CAKE_OPTS $LINK_COMPENSATION"
-    [ -n "$EXTRA_PARAMETERS_INGRESS" ] && INGRESS_CAKE_OPTS="$INGRESS_CAKE_OPTS $EXTRA_PARAMETERS_INGRESS"
-    
+    CAKE_OPTS="bandwidth ${DOWNRATE}kbit ingress"
     # shellcheck disable=SC2086
-    tc qdisc add dev "$LAN" root cake $INGRESS_CAKE_OPTS
+    append_cake_opt "autorate-ingress" "$AUTORATE_INGRESS" &&
+    append_cake_opt "$PRIORITY_QUEUE_INGRESS" "1" &&
+    append_cake_opt "dual-dsthost" "$HOST_ISOLATION" &&
+    append_cake_opt "rtt ${RTT}ms" "${RTT:+1}" &&
+    append_cake_opt "$cake_link_params" "1" &&
+    append_cake_opt "$LINK_COMPENSATION" "1" &&
+    append_cake_opt "$EXTRA_PARAMETERS_INGRESS" "1" &&
+    append_cake_opt "nat" "$NAT_INGRESS" &&
+    append_cake_opt "wash" "$WASHDSCPDOWN" &&
+    tc qdisc add dev "$LAN" root cake $CAKE_OPTS || qdisc_setup_failed
+debug_log "INGRESS cake opts: '$CAKE_OPTS'"
 }
 
 # Helper function to set up hybrid qdisc on an interface
@@ -1298,34 +1587,31 @@ setup_hybrid() {
     # Class 1:13 - CAKE class (most traffic - default)
     local cake_rate=$((RATE - GAMERATE)); [ $cake_rate -le 0 ] && cake_rate=1
     tc class add dev "$DEV" parent 1:1 classid 1:13 hfsc ls m1 "${cake_rate}kbit" d "${DUR}ms" m2 "${cake_rate}kbit"
+
     # Attach CAKE qdisc - use "hybrid" mode to match HFSC overhead
     local cake_link_params="$(get_cake_link_params "hybrid")"
     local CAKE_OPTS=""
+    tc qdisc del dev "$DEV" parent 1:13 handle 13: > /dev/null 2>&1
     
+    # shellcheck disable=SC2086
     if [ "$DIR" = "wan" ]; then
         CAKE_OPTS="besteffort" # Default for non-realtime in hybrid
-        [ "$HOST_ISOLATION" -eq 1 ] && CAKE_OPTS="$CAKE_OPTS dual-srchost"
-        [ "$NAT_EGRESS" -eq 1 ] && CAKE_OPTS="$CAKE_OPTS nat" || CAKE_OPTS="$CAKE_OPTS nonat"
-        [ "$WASHDSCPUP" -eq 1 ] && CAKE_OPTS="$CAKE_OPTS wash" || CAKE_OPTS="$CAKE_OPTS nowash"
-        [ -n "$RTT" ] && CAKE_OPTS="$CAKE_OPTS rtt ${RTT}ms"
-        [ -n "$cake_link_params" ] && CAKE_OPTS="$CAKE_OPTS $cake_link_params"
-        # Only add LINK_COMPENSATION if explicitly set (don't add noatm as ADSL presets already set atm)
-        [ -n "$LINK_COMPENSATION" ] && CAKE_OPTS="$CAKE_OPTS $LINK_COMPENSATION"
-        [ -n "$EXTRA_PARAMETERS_EGRESS" ] && CAKE_OPTS="$CAKE_OPTS $EXTRA_PARAMETERS_EGRESS"
+        append_cake_opt "dual-srchost" "$HOST_ISOLATION" &&
+        append_cake_opt "$EXTRA_PARAMETERS_EGRESS" "1" &&
+        append_cake_opt "nat" "$NAT_EGRESS" &&
+        append_cake_opt "wash" "$WASHDSCPUP"
     else # lan (ingress)
         CAKE_OPTS="besteffort ingress" # Default for non-realtime in hybrid
-        [ "$HOST_ISOLATION" -eq 1 ] && CAKE_OPTS="$CAKE_OPTS dual-dsthost"
-        [ "$NAT_INGRESS" -eq 1 ] && CAKE_OPTS="$CAKE_OPTS nat" || CAKE_OPTS="$CAKE_OPTS nonat"
-        [ "$WASHDSCPDOWN" -eq 1 ] && CAKE_OPTS="$CAKE_OPTS wash" || CAKE_OPTS="$CAKE_OPTS nowash"
-        [ -n "$RTT" ] && CAKE_OPTS="$CAKE_OPTS rtt ${RTT}ms"
-        [ -n "$cake_link_params" ] && CAKE_OPTS="$CAKE_OPTS $cake_link_params"
-        # Only add LINK_COMPENSATION if explicitly set (don't add noatm as ADSL presets already set atm)
-        [ -n "$LINK_COMPENSATION" ] && CAKE_OPTS="$CAKE_OPTS $LINK_COMPENSATION"
-        [ -n "$EXTRA_PARAMETERS_INGRESS" ] && CAKE_OPTS="$CAKE_OPTS $EXTRA_PARAMETERS_INGRESS"
-    fi
-    tc qdisc del dev "$DEV" parent 1:13 handle 13: > /dev/null 2>&1
-    # shellcheck disable=SC2086
-    tc qdisc replace dev "$DEV" parent 1:13 handle 13: cake $CAKE_OPTS
+        append_cake_opt "dual-dsthost" "$HOST_ISOLATION" &&
+        append_cake_opt "$EXTRA_PARAMETERS_INGRESS" "1" &&
+        append_cake_opt "nat" "$NAT_INGRESS" &&
+        append_cake_opt "wash" "$WASHDSCPDOWN"
+    fi &&
+    append_cake_opt "rtt ${RTT}ms" "${RTT:+1}" &&
+    append_cake_opt "$cake_link_params" "1" &&
+    append_cake_opt "$LINK_COMPENSATION" "1" &&
+    tc qdisc replace dev "$DEV" parent 1:13 handle 13: cake $CAKE_OPTS || qdisc_setup_failed
+debug_log "$DIR HYBRID cake opts: '$CAKE_OPTS'"
 
     # Class 1:15 - Bulk traffic (HFSC LS + fq_codel)
     # Use HFSC limits: m1 3%, m2 10%
@@ -1338,8 +1624,8 @@ setup_hybrid() {
     tc qdisc del dev "$DEV" parent 1:15 handle 15: > /dev/null 2>&1
     tc qdisc replace dev "$DEV" parent 1:15 handle 15: fq_codel memory_limit $((RATE*100/8)) interval "${INTVL}ms" target "${TARG}ms" quantum $((MTU * 2))
 
-    # Apply DSCP Filters (only on LAN/IFB)
-    if [ "$DIR" = "lan" ]; then
+    # Apply DSCP Filters (on ingress always, on egress only when SFO active)
+    if [ "$DIR" = "lan" ] || [ "$SFO_ENABLED" = "1" ]; then
         # Delete existing filters
         tc filter del dev "$DEV" parent 1: prio 1 > /dev/null 2>&1
         tc filter del dev "$DEV" parent 1: prio 2 > /dev/null 2>&1
@@ -1549,8 +1835,8 @@ setup_htb() {
         interval "$((INTVL*2))ms" target "$((TARG*2))ms" \
         quantum 300
 
-    # Apply DSCP filters only on ingress (LAN/IFB)
-    if [ "$DIR" = "lan" ]; then
+    # Apply DSCP filters (on ingress always, on egress only when SFO active)
+    if [ "$DIR" = "lan" ] || [ "$SFO_ENABLED" = "1" ]; then
         # Delete existing filters
         tc filter del dev "$DEV" parent 1: prio 1 > /dev/null 2>&1
         tc filter del dev "$DEV" parent 1: prio 2 > /dev/null 2>&1
@@ -1618,6 +1904,16 @@ case "$ROOT_QDISC" in
         setup_hfsc "$LAN" "$DOWNRATE" "$GAMEDOWN" "$gameqdisc" lan
         ;;
 esac
+
+## Set up ctinfo for upstream (egress) - SFO compatibility
+# Restore DSCP values from conntrack for egress packets
+# Only needed when Software Flow Offloading is active
+if [ "$SFO_ENABLED" = "1" ]; then
+    print_msg "" "Software Flow Offloading detected - enabling SFO compatibility mode..."
+    tc filter add dev "$WAN" parent 1: protocol all matchall action ctinfo dscp 63 128 continue
+else
+    print_msg "" "Software Flow Offloading disabled - dynamic rules fully functional..."
+fi
 
 print_msg "DONE!"
 

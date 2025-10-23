@@ -400,28 +400,21 @@ if (isset($_POST['save_autostart'])) {
 </div>
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    const img = document.querySelector('.centered-img');
-
-    const savedRotation = parseInt(localStorage.getItem('rotation')) || 0;
-    img.style.transform = `rotateY(${savedRotation}deg)`;
-
-    img.addEventListener('mouseenter', function() {
-        const newRotation = savedRotation + 180;
-        img.style.transform = `rotateY(${newRotation}deg)`;
-        localStorage.setItem('rotation', newRotation);
-    });
-});
-
 document.addEventListener("DOMContentLoaded", () => {
   const loader = document.getElementById("theme-loader");
   const MAX_WAIT_TIME = 15000;
 
   document.querySelectorAll("form").forEach(form => {
     form.addEventListener("submit", (e) => {
-      if (e.submitter?.classList.contains('cancel-btn') || 
-         form.classList.contains('no-loader')) return;
-      
+      if (e.submitter?.classList.contains('cancel-btn')) {
+        e.preventDefault();
+        return;
+      }
+
+      if (form.classList.contains('no-loader')) {
+        return;
+      }
+
       if (loader) {
         loader.style.display = "flex";
         setTimeout(() => {
@@ -1261,18 +1254,49 @@ function updateLanguage(lang) {
 }
 
 function speakMessage(message) {
-    const xhr = new XMLHttpRequest();
-    xhr.open('GET', './lib/language.txt', true);
-    xhr.onreadystatechange = function() {
-        if (xhr.readyState === 4 && xhr.status === 200) {
-            const lang = xhr.responseText.trim();
-            const utterance = new SpeechSynthesisUtterance(message);
-            utterance.lang = lang;
-            speechSynthesis.speak(utterance);
-        }
-    };
-    xhr.send();
+  const langToVoiceMap = {
+    zh: getChineseVoicePreference(),
+    hk: getChineseVoicePreference(),
+    en: 'en-US',
+    ko: 'ko-KR',
+    ja: 'ja-JP',
+    vi: 'vi-VN',
+    ru: 'ru-RU',
+    ar: 'ar-SA',
+    es: 'es-ES',
+    de: 'de-DE',
+    fr: 'fr-FR'
+  };
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('GET', './lib/language.txt', true);
+  xhr.onreadystatechange = function() {
+    if (xhr.readyState === 4 && xhr.status === 200) {
+      const lang = xhr.responseText.trim();
+      const voiceLang = langToVoiceMap[lang] || 'zh-HK';
+      const utterance = new SpeechSynthesisUtterance(message);
+      utterance.lang = voiceLang;
+      speechSynthesis.speak(utterance);
+    }
+  };
+  xhr.send();
 }
+
+function getChineseVoicePreference() {
+  return localStorage.getItem('chineseVoiceLang') || 'zh-HK';
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  const radios = document.querySelectorAll('input[name="chineseVoice"]');
+  const saved = getChineseVoicePreference();
+  radios.forEach(radio => {
+    if (radio.value === saved) radio.checked = true;
+    radio.addEventListener('change', function() {
+      localStorage.setItem('chineseVoiceLang', this.value);
+      speakMessage(`Chinese voice has been switched to ${this.value}`);
+    });
+  });
+});
 
 function updateFlagIcon(lang) {
     const flagImg = document.getElementById('flagIcon');
